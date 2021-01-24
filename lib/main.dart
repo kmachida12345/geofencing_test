@@ -1,4 +1,8 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_geofence/geofence.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 void main() {
   runApp(MyApp());
@@ -46,68 +50,112 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  String _platformVersion = 'Unknown';
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      new FlutterLocalNotificationsPlugin();
+
+  @override
+  void initState() {
+    super.initState();
+    initPlatformState();
+
+// initialise the plugin. app_icon needs to be a added as a drawable resource to the Android head project
+    var initializationSettingsAndroid =
+        new AndroidInitializationSettings('app_icon');
+    var initializationSettingsIOS =
+        IOSInitializationSettings(onDidReceiveLocalNotification: null);
+    var initializationSettings = InitializationSettings(
+        android: initializationSettingsAndroid, iOS: initializationSettingsIOS);
+    flutterLocalNotificationsPlugin.initialize(initializationSettings,
+        onSelectNotification: null);
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
-            ),
-          ],
+    return MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text('Plugin example app'),
+        ),
+        body: ListView(children: <Widget>[
+          Text('Running on: $_platformVersion\n'),
+          RaisedButton(child: Text("Add region"), onPressed: () {
+            Geolocation location = Geolocation(latitude: 50.853410, longitude: 3.354470, radius: 50.0, id: "Kerkplein13");
+            Geofence.addGeolocation(location, GeolocationEvent.entry).then((onValue) {
+              print("great success");
+              scheduleNotification("Georegion added", "Your geofence has been added!");
+            }).catchError((onError) {
+              print("great failure");
+            });
+          },),
+          RaisedButton(child: Text("Add neighbour region"), onPressed: () {
+            Geolocation location = Geolocation(latitude: 50.853440, longitude: 3.354490, radius: 50.0, id: "Kerkplein15");
+            Geofence.addGeolocation(location, GeolocationEvent.entry).then((onValue) {
+              print("great success");
+              scheduleNotification("Georegion added", "Your geofence has been added!");
+            }).catchError((onError) {
+              print("great failure");
+            });
+          },),
+          RaisedButton(child: Text("Remove regions"), onPressed: () {
+            Geofence.removeAllGeolocations();
+          },),
+          RaisedButton(child: Text("Request Permissions"), onPressed: () {
+            Geofence.requestPermissions();
+          },),
+          RaisedButton(child: Text("get user location"), onPressed: () {
+            Geofence.getCurrentLocation().then((coordinate) {
+              print("great got latitude: ${coordinate.latitude} and longitude: ${coordinate.longitude}");
+            });
+          }),
+          RaisedButton(child: Text("Listen to background updates"), onPressed: () {
+            Geofence.startListeningForLocationChanges();
+            Geofence.backgroundLocationUpdated.stream.listen((event) {
+              scheduleNotification("You moved significantly", "a significant location change just happened.");
+            });
+          }),
+          RaisedButton(child: Text("Stop listening to background updates"), onPressed: () {
+            Geofence.stopListeningForLocationChanges();
+          }),
+
+        ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+
+  // Platform messages are asynchronous, so we initialize in an async method.
+  Future<void> initPlatformState() async {
+    // If the widget was removed from the tree while the asynchronous platform
+    // message was in flight, we want to discard the reply rather than calling
+    // setState to update our non-existent appearance.
+    if (!mounted) return;
+    Geofence.initialize();
+    Geofence.startListening(GeolocationEvent.entry, (entry) {
+      scheduleNotification("Entry of a georegion", "Welcome to: ${entry.id}");
+    });
+
+    Geofence.startListening(GeolocationEvent.exit, (entry) {
+      scheduleNotification("Exit of a georegion", "Byebye to: ${entry.id}");
+    });
+  }
+
+  void scheduleNotification(String title, String subtitle) {
+    print("scheduling one with $title and $subtitle");
+    var rng = new Random();
+    Future.delayed(Duration(seconds: 5)).then((result) async {
+      var androidPlatformChannelSpecifics = AndroidNotificationDetails(
+          'your channel id', 'your channel name', 'your channel description',
+          importance: Importance.max,
+          priority: Priority.high,
+          ticker: 'ticker');
+      var iOSPlatformChannelSpecifics = IOSNotificationDetails();
+      var platformChannelSpecifics = NotificationDetails(
+          android: androidPlatformChannelSpecifics, iOS: iOSPlatformChannelSpecifics);
+      await flutterLocalNotificationsPlugin.show(
+          rng.nextInt(100000), title, subtitle, platformChannelSpecifics,
+          payload: 'item x');
+    });
   }
 }
